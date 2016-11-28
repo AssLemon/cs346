@@ -52,6 +52,7 @@ public class CS346 {
 		public void write(String text) {
 			try {
 				fileWriter.append("<Server " + serverID + ">: " + text + "\n");
+				fileWriter.flush();
 			} catch (IOException e) {
 				e.printStackTrace();
 				System.exit(1);
@@ -191,6 +192,8 @@ public class CS346 {
 		
 		//spawn servers
 		cs346.spawnServers();
+		
+		//to do
 		//create concurrent threads
 		//spawn a client in each
     }
