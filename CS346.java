@@ -3,11 +3,14 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.io.FileWriter;
 import java.io.FileReader;
-
+import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 
 public class CS346 {
@@ -86,7 +89,7 @@ public class CS346 {
 			this.logger = new LogManager(this.id);
 			//try to open ServerSocket
 			try {
-				serverSocket = new ServerSocket(port);
+				serverSocket = new ServerSocket(port, 0, InetAddress.getByName("127.0.0.1"));
 			} catch (IOException e) {
 				e.printStackTrace();
 				System.exit(1);
@@ -172,10 +175,62 @@ public class CS346 {
 		public void run() {
 			System.out.println("<Client" + id + ">: Thread" + id + " is running!");
 			//read trans.txt, while there is a next line
-				//connect to specified server
-				//send transaction
-				//await response
-				//parse response and output
+			String transaction;
+			try {
+				BufferedReader fileIn = new BufferedReader(new FileReader("trans.txt"));
+				try {
+					while ((transaction = fileIn.readLine()) != null) {
+						System.out.println("<Client" + this.id + ">: read transaction \"" + transaction + "\".");
+						int toServerIndex;
+						int toServer=0;
+						try {
+							toServerIndex = transaction.indexOf("[");
+							toServer = Integer.parseInt(transaction.substring(toServerIndex+1,toServerIndex+2));
+						} catch (NumberFormatException n){
+							n.printStackTrace();
+							System.err.println("<Client" + this.id + ">: attempting to parse server id from transaction and failed");
+							System.exit(1);
+						}	
+						//connect to specified server
+						Socket socket = this.connect(9000 + toServer);
+						InputStream is = socket.getInputStream();
+						OutputStream os = socket.getOutputStream();
+						//send transaction
+						PrintWriter out = new PrintWriter(os, true);
+						BufferedReader in = new BufferedReader(new InputStreamReader(is)); 
+						out.println(transaction);
+						
+						//await response
+						String serverResponse = in.readLine();
+						
+						//parse response and output
+						System.out.println("<Client" + this.id + ">: recieved response from server" + toServer + ": \"" + serverResponse + "\"");												
+						
+						//sleep used to test if threads were concurrent or not
+						//SPOILER: they are
+						// try {
+							// Thread.sleep(1000);
+						// } catch (InterruptedException i) {
+							// i.printStackTrace();
+						// }
+					}
+				} catch (IOException e) {
+					e.printStackTrace();
+				}	
+			} catch (FileNotFoundException f) {
+				f.printStackTrace();
+			}
+		}
+		
+		private Socket connect(int serverID) {
+			Socket socket = null;
+			try {
+				socket = new Socket(InetAddress.getByName("127.0.0.1"), 9000 + serverID);
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
+			return socket;
 		}
 	}
 	
@@ -260,8 +315,8 @@ public class CS346 {
 		Client client1 = new Client(1, 11);
 		Client client2 = new Client(2, 12);
 		Thread thread1 = new Thread(client1);
-		thread1.start();
 		Thread thread2 = new Thread(client2);
+		thread1.start();
 		thread2.start();
 	}
 }
