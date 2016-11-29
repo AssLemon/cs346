@@ -13,3 +13,6 @@ hs_err_pid*
 
 #log files
 *-log.txt
+
+#trans.txt
+trans.txt
