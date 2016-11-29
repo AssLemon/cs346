@@ -1,10 +1,13 @@
 import java.io.IOException;
+import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.io.FileWriter;
+import java.io.FileReader;
+
 
 
 public class CS346 {
@@ -22,6 +25,8 @@ public class CS346 {
         System.out.println("\t\t<Number of servers>: integer number between 4 and 10. Spawns that many servers.");
         System.out.println("\t\t<Qw>: non-zero positive integer. Sets the value of Qw");
         System.out.println("\t\t<Qr>: non-zero positive integer. Sets the value of Qr");
+        System.out.println("\t<Qr> + <Qw> must be greater than <Number of servers>");
+		System.out.println("\t<Qw> * 2 much be greater than <Number of servers>");
         System.exit(1);
     }
     
@@ -136,12 +141,41 @@ public class CS346 {
 	}
 	
 	//only two clients are created, with IDs of 1 and 2
-	private class Client {
+	private class Client implements Runnable{
 		private int id;
 		private int port;
 		
 		public Client(int id, int port){
-			//to do
+			this.id = id;
+			this.port = port;
+			//if trans.txt does not exist, create default
+			try {
+				FileReader fileReader = new FileReader("trans.txt");
+				System.out.println("<Client" + this.id + ">: trans.txt has been found.");
+			} catch (FileNotFoundException e) {
+				System.out.println("<Client" + this.id + ">: trans.txt has not been found.");
+				try {
+					FileWriter fileWriter = new FileWriter("trans.txt");
+					System.out.println("<Client" + this.id + ">: trans.txt is being generated.");
+					fileWriter.write("T[1,1]: begin(T1); X:=20;Write(X);Commit(T1);\n");
+					fileWriter.flush();
+					fileWriter.write("T[2,3]: begin(T2); Read(X);Commit(T2);\n");
+					fileWriter.flush();
+					fileWriter.close();
+				} catch (IOException f) {
+					f.printStackTrace();
+				}
+			}
+			//open port for comms
+		}
+		
+		public void run() {
+			System.out.println("<Client" + id + ">: Thread" + id + " is running!");
+			//read trans.txt, while there is a next line
+				//connect to specified server
+				//send transaction
+				//await response
+				//parse response and output
 		}
 	}
 	
@@ -185,7 +219,19 @@ public class CS346 {
 			System.exit(1);
 		}	
 		
-		System.out.println("<CS346> : received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
+		if (!(Qw + Qr > n)) {
+			System.err.println("<CS346>: invalid values of <Qw> and <Qr> for <Number of servers> = " + n + "");
+			System.err.println("<CS346>: <Qr> + <Qw> must be greater than <Number of servers>");
+			System.exit(1);			
+		}
+		
+		if (!(2*Qw > n)) {
+			System.err.println("<CS346>: invalid values of <Qw> for <Number of servers> = " + n + "");
+			System.err.println("<CS346>: <Qw> * 2 must be greater than <Number of servers>");
+			System.exit(1);			
+		}
+		
+		System.out.println("<CS346>: received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
 
 		//instantiate CS246
 		CS346 cs346 = new CS346();
@@ -193,13 +239,12 @@ public class CS346 {
 		//spawn servers
 		cs346.spawnServers();
 		
-		//to do
-		//create concurrent threads
-		//spawn a client in each
+		//
+		cs346.spawnClients();
     }
     
-		public void spawnServers() {
-		System.out.println("<CS346> : spawning " + n + " servers.");
+	public void spawnServers() {
+		System.out.println("<CS346>: spawning " + n + " servers.");
 		servers = new Server[n];		
 		//for 1 to <number of servers>
 		for (int i=0; i<n; i++){
@@ -209,6 +254,17 @@ public class CS346 {
 			servers[i] = new Server(serverID, serverPort);
 		}
 	}
+		
+	public void spawnClients() {
+		System.out.println("<CS346>: spawning 2 clients.");
+		Client client1 = new Client(1, 11);
+		Client client2 = new Client(2, 12);
+		Thread thread1 = new Thread(client1);
+		thread1.start();
+		Thread thread2 = new Thread(client2);
+		thread2.start();
+	}
+}
     // private static void serverMain(String[] args) throws IOException {
 	// if (args.length != 4) {
             // usage();
@@ -315,4 +371,3 @@ public class CS346 {
 		// }
 
 	// } */
-}
