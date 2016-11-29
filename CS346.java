@@ -192,7 +192,7 @@ public class CS346 {
 							System.exit(1);
 						}	
 						//connect to specified server
-						Socket socket = this.connect(9000 + toServer);
+						Socket socket = this.connect(toServer);
 						InputStream is = socket.getInputStream();
 						OutputStream os = socket.getOutputStream();
 						//send transaction
@@ -227,6 +227,7 @@ public class CS346 {
 			try {
 				socket = new Socket(InetAddress.getByName("127.0.0.1"), 9000 + serverID);
 			} catch (IOException e) {
+				System.err.println("<Client" + this.id + ">: attempted to connect to Server" + serverID + " and failed.");	
 				e.printStackTrace();
 				System.exit(1);
 			}
