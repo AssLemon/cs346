@@ -1,5 +1,6 @@
 import java.io.IOException;
 import java.io.FileNotFoundException;
+import java.net.SocketTimeoutException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -17,13 +18,18 @@ import java.io.InputStreamReader;
 
 public class CS346 {
 
+	public static final int startPort = 9100;
+	public static int timestamp = 0;
     public static InputStream is;
     public static OutputStream os;
 	private static int Qw;
 	private static int Qr;
 	private static int n;
+	//servers is used to instantiate the servers and/or threads
 	private Server[] servers;
+	//serverThreads is used to start the threads
 	private Thread[] serverThreads;
+	private static boolean close = false;
     
     public static void usage() {
         System.out.println("Usage:");
@@ -80,125 +86,163 @@ public class CS346 {
 		private ServerSocket serverSocket;
 		private int lock;
 		private LogManager logger;
-		
-		//Stack of servers locked by this instance of server object
-		private Stack<Server> LockedServers = new Stack<Server>();
-		
-
+		private int latestTimestamp;
 		
 		public Server(int id, int port) {
 			//set variables
 			this.id = id;
 			this.port = port;
-			this.dataItem = 0;
 			this.lock = 0;
+			this.dataItem = 0;
 			//create a LogManager
 			this.logger = new LogManager(this.id);
+			this.latestTimestamp = 0;
+			
+			logger.write("The data item has been set to the initial value");
+			logger.write("Data item = " + getDataItem());
+			
 			//try to open ServerSocket
 			try {
 				serverSocket = new ServerSocket(port, 0, InetAddress.getByName("127.0.0.1"));
+				logger.write("ServerSocket open on port " + port);
 			} catch (IOException e) {
 				e.printStackTrace();
 				System.exit(1);
-			}
-			logger.write("ServerSocket open on port " + port);
-		}
-		
-		public void run() {
-			System.out.println("Server " + id + " threaded and running" );
-			String transaction;
-			Socket ss = new Socket();
-
-			try {
-				ss = serverSocket.accept();
-			} catch (IOException e) {
-				e.printStackTrace();
-				System.exit(1);
-			}
-
-			Scanner sc = null;
-			try {
-				sc = new Scanner(ss.getInputStream());
-			} catch (IOException e) {
-				e.printStackTrace();
-				System.exit(1);
-			}
-			transaction = sc.nextLine();
-			Quorum(transaction, id);
-		}	
-		
-		public void Quorum(String transaction, int id){
-			System.out.println(" ");
-			
-			int num_ServerLocks = 0;
-			int CurrentLocks = 0;
-			
-			//0 = read , 1 = write
-			int operation = 0;
-			
-			
-			//lock the server which is being read/write
-			//parse string to find out read/write lock Qn - 1 other servers
-			
-			if ( transaction.toLowerCase().indexOf("write") != -1 ) {
-				System.out.println("Server "+id+": Has recieved a write request");
-				operation = 1;
-				num_ServerLocks = Qw;
-			} else {
-				System.out.println("Server "+id+": Has recieved a read request");
-				operation = 0;
-				num_ServerLocks = Qr;
-			}
-			
-			System.out.println("Locking Servers");
-			
-			//locks server which is due to be written too
-			if(CurrentLocks < num_ServerLocks && !servers[id].isLocked()){
-				servers[id].lock();
-				CurrentLocks++;
-				System.out.println("Locked server "+id);
-				LockedServers.push(servers[id]);
-			}
-			
-			//locks all other servers
-			int counter = 0;
-			while(CurrentLocks < num_ServerLocks){
-				if(!servers[counter].isLocked()){
-					servers[counter].lock();
-					LockedServers.push(servers[counter]);
-					System.out.println("Locked server "+servers[counter].id);
-					CurrentLocks++;
-					counter++;
-				}else{
-					counter++;
-				}
-			}
-			if(CurrentLocks == num_ServerLocks){
-				System.out.println("Locks Obtained: Handling transaction");
-				if(operation == 0){
-					getDataItem();
-				}else{
-					int value_One = transaction.indexOf("X:=");
-					int value_Two = transaction.indexOf(";W");
-					write(Integer.parseInt(transaction.substring(value_One+3, value_Two)));
-					LockedServers.pop().unlock();
-				}
-			}else{
-				System.out.println("Locks Could not be obtained, unlocking locked servers.");
-				LockedServers.pop().unlock();
 			}
 		}
 		
-		//to do
-		//wait until unlocked and then getDataItem()
-		public int read() {
+		//acquires a write or read quorum based on the param
+		private Socket[] quorum(int size) {
+			Socket[] quorumSockets = new Socket[size -1];
+			//for each server required for a quorum
+			for (int i=0; i<quorumSockets.length; i++) {
+				//loop until the slot is filled
+				boolean serverConnected = false;
+				while (!serverConnected) {
+					for (int j=1; j<=n; j++) {
+						if (!serverConnected) {
+							if (j != id) {
+								Socket socket = new Socket();
+								try {
+									//connect with timeout 
+									socket.connect(new InetSocketAddress("127.0.0.1", startPort + j), 15);
+									if (socket.isConnected()) {
+										serverConnected = true;
+										quorumSockets[i] = socket;
+										OutputStream os = socket.getOutputStream();
+										PrintWriter out = new PrintWriter(os, true);
+										out.println("quorum locked by server " + id);
+									}
+								} catch (SocketTimeoutException t) {
+									System.out.println("Server " + id + " has timed out waiting for response form server" + j);
+								} catch (IOException e) {
+									e.printStackTrace();
+									System.err.println("Server " + id + " has crashed trying to obtain a quorum");
+									System.exit(1);
+								}
+							}
+						}
+					}
+				}	
+			}
+			return quorumSockets;
+		}
+		
+		private int read(Socket[] quorum) {
+			//todo
+			//check the fucking thing of all of the fuckers
 			return 0;
 		}
 		
-		//to do
-		//wait until unlocked and then setDataItem(int x)
-		public boolean write(int x) {
-			return false;
+		private void write(Socket quorum, int x) {
+			//
+			//command all of them to write, the bastards them
+		}
+		
+		private int set(String toBeConverted) {
+			//to do
+			//parse the string you fucker
+			return 0;
+		}
+		
+		public void run() {
+			logger.write("Running and ready for operation.");
+			String received;
+			//continue server operations until requested to close
+			while (!close) {
+				try {
+					//block until connection is made
+					Socket socket = serverSocket.accept();
+					//lock 
+						//required? if blocking perhaps not
+					InputStream is = socket.getInputStream();
+					OutputStream os = socket.getOutputStream();
+					PrintWriter out = new PrintWriter(os, true);
+					BufferedReader in = new BufferedReader(new InputStreamReader(is));
+					
+					//standardise input, remove whitespace change to lower
+					received = in.readLine();
+					// System.out.println(received);
+					logger.write("received \"" + received + "\".");
+					received = received.trim().toLowerCase().replaceAll(" ","");
+					// System.out.println(received);
+					logger.write("format standardised to \"" + received + "\".");
+						
+					//client connection	
+					if (received.startsWith("t[")) {
+						//do transaction
+						if (received.contains("write")){
+							//a write quorum is required
+							//acquire quorum
+							Socket[] quorum = quorum(qw);
+						}
+						else if (received.contains("read")){
+							//a read quorum is required 
+							//acquire quorum
+							Socket[] quorum = quorum(qr);
+						}
+						else {
+							//no quorum is required
+							Socket[] quorum = new Socket[0];
+						}
+						
+						int index = received.indexOf(":") + 1;
+						String trans = received.substring(index);
+						//peel transaction string until commit
+						
+						while (!trans.equals("")) {
+							//on begin
+								// do nothing
+							//on read
+								//get read quorum
+								//x = data item
+							//on write
+								//get write quorum
+								//have all write in parallel
+								//update timestamp and latestTimestamp
+								//set data item
+							//on set data
+								//x = var
+							//on commit
+								//close quorum sockets
+							
+						}
+							
+					} 					
+					//server connection
+					else if (received.startsWith("q")) {
+						//wait on server instruction
+							//update dataItem
+							//send var and timestamp
+							//release
+						
+					}	
+				} catch (IOException e) {
+					e.printStackTrace();
+					System.exit(1);
+				}
+			}
+			
 		}
 		
 		public boolean lock(){
@@ -239,19 +283,20 @@ public class CS346 {
 	private class Client implements Runnable{
 		private int id;
 		private int port;
+		private ServerSocket serverSocket;
 		
 		public Client(int id, int port){
 			this.id = id;
 			this.port = port;
 			//if trans.txt does not exist, create default
 			try {
-				FileReader fileReader = new FileReader("trans.txt");
-				System.out.println("<Client" + this.id + ">: trans.txt has been found.");
+				FileReader fileReader = new FileReader("trans" + id + ".txt");
+				System.out.println("<Client" + this.id + ">: trans" + id + ".txt has been found.");
 			} catch (FileNotFoundException e) {
-				System.out.println("<Client" + this.id + ">: trans.txt has not been found.");
+				System.out.println("<Client" + this.id + ">: trans" + id + ".txt has not been found.");
 				try {
-					FileWriter fileWriter = new FileWriter("trans.txt");
-					System.out.println("<Client" + this.id + ">: trans.txt is being generated.");
+					FileWriter fileWriter = new FileWriter("trans" + id + ".txt");
+					System.out.println("<Client" + this.id + ">: trans" + id + ".txt is being generated.");
 					fileWriter.write("T[1,1]: begin(T1); X:=20;Write(X);Commit(T1);\n");
 					fileWriter.flush();
 					fileWriter.write("T[2,3]: begin(T2); Read(X);Commit(T2);\n");
@@ -261,7 +306,14 @@ public class CS346 {
 					f.printStackTrace();
 				}
 			}
-			//open port for comms
+			
+			//open serverSocket on client to receive confirmation of transaction from the server
+			try {
+				serverSocket = new ServerSocket(port, 0, InetAddress.getByName("127.0.0.1"));
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
 		}
 		
 		public void run() {
@@ -269,7 +321,7 @@ public class CS346 {
 			//read trans.txt, while there is a next line
 			String transaction;
 			try {
-				BufferedReader fileIn = new BufferedReader(new FileReader("trans.txt"));
+				BufferedReader fileIn = new BufferedReader(new FileReader("trans" + id + ".txt"));
 				try {
 					while ((transaction = fileIn.readLine()) != null) {
 						System.out.println("<Client" + this.id + ">: read transaction \"" + transaction + "\".");
@@ -296,7 +348,7 @@ public class CS346 {
 						String serverResponse = in.readLine();
 						
 						//parse response and output
-						System.out.println("<Client" + this.id + ">: recieved response from server" + toServer + ": \"" + serverResponse + "\"");												
+						System.out.println("<Client" + this.id + ">: received response from server" + toServer + ": \"" + serverResponse + "\"");												
 						
 						//sleep used to test if threads were concurrent or not
 						//SPOILER: they are
@@ -306,18 +358,23 @@ public class CS346 {
 							// i.printStackTrace();
 						// }
 					}
+					System.out.println("<Client" + this.id + ">: reached end of transactions in trans" + id + ".txt");
 				} catch (IOException e) {
 					e.printStackTrace();
+					System.exit(1);
 				}	
 			} catch (FileNotFoundException f) {
 				f.printStackTrace();
+				System.exit(1);
+				
 			}
+			System.out.println("<Client" + this.id + ">: closing client");
 		}
 		
 		private Socket connect(int serverID) {
 			Socket socket = null;
 			try {
-				socket = new Socket(InetAddress.getByName("127.0.0.1"), 9000 + serverID);
+				socket = new Socket(InetAddress.getByName("127.0.0.1"), startPort + serverID);
 			} catch (IOException e) {
 				System.err.println("<Client" + this.id + ">: attempted to connect to Server" + serverID + " and failed.");	
 				e.printStackTrace();
@@ -380,7 +437,6 @@ public class CS346 {
 		}
 		
 		System.out.println("<CS346>: received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
-		System.out.println("<CS346>: received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
 
 		//instantiate CS246
 		CS346 cs346 = new CS346();
@@ -393,29 +449,6 @@ public class CS346 {
 		cs346.spawnClients();
     }
     
-    public void spawnServers() {
-        Thread[] threads = new Thread[n];
-        
-        System.out.println("<CS346>: spawning " + n + " servers.");
-        servers = new Server[n];
-        //for 1 to <number of servers>
-        for (int i=0; i<n; i++){
-            //spawn servers
-            int serverID = i+1;
-            int serverPort = 9000 + serverID;
-            servers[i] = new Server(serverID, serverPort);
-        }
-        
-        
-        System.out.println("Threading Servers");
-        for (int i = 0; i < n; i++){
-            threads[i] = new Thread(servers[i]);
-        }
-        for(int i = 0; i < threads.length; i++){
-            threads[i].start();
-        }
-    }
-    
 	public void spawnServers() {
 		System.out.println("<CS346>: spawning " + n + " servers.");
 		servers = new Server[n];		
@@ -423,12 +456,13 @@ public class CS346 {
 		for (int i=0; i<n; i++){
 			//spawn servers
 			int serverID = i+1;
-			int serverPort = 9000 + serverID;
+			int serverPort = startPort + serverID;
 			servers[i] = new Server(serverID, serverPort);
 		}
 	}
 
 	public void startServers() {
+		serverThreads = new Thread[n];
 		for (int i=0; i<n; i++){
 			serverThreads[i] = new Thread(servers[i]);
 			serverThreads[i].start();
@@ -437,11 +471,16 @@ public class CS346 {
 
 	public void spawnClients() {
 		System.out.println("<CS346>: spawning 2 clients.");
-		Client client1 = new Client(1, 11);
-		Client client2 = new Client(2, 12);
+		Client client1 = new Client(1, startPort + 11);
+		Client client2 = new Client(2, startPort + 12);
 		Thread thread1 = new Thread(client1);
 		Thread thread2 = new Thread(client2);
 		thread1.start();
 		thread2.start();
 	}
+
+	public static void close() {
+		close = true;
+	}
+	
 }
