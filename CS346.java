@@ -6,6 +6,8 @@ import java.net.InetSocketAddress;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Scanner;
+import java.util.Stack;
 import java.io.FileWriter;
 import java.io.FileReader;
 import java.io.PrintWriter;
@@ -38,7 +40,6 @@ public class CS346 {
 		private int serverID;
 		private String filename;
 		private FileWriter fileWriter;
-		
 		public LogManager(int serverID) {
 			this.serverID = serverID;
 			this.filename = this.serverID + "-log.txt";
@@ -57,7 +58,7 @@ public class CS346 {
 				System.exit(1);
 			}
 		}
-		
+
 		public void write(String text) {
 			try {
 				fileWriter.append("<Server " + serverID + ">: " + text + "\n");
@@ -68,7 +69,7 @@ public class CS346 {
 			}
 		}
 	}
-	
+    
 	//each server is assigned a unique id
 	//a server has a log manager
 	//a server has a lock manager
@@ -79,6 +80,11 @@ public class CS346 {
 		private ServerSocket serverSocket;
 		private int lock;
 		private LogManager logger;
+		
+		//Stack of servers locked by this instance of server object
+		private Stack<Server> LockedServers = new Stack<Server>();
+		
+
 		
 		public Server(int id, int port) {
 			//set variables
@@ -94,8 +100,93 @@ public class CS346 {
 			} catch (IOException e) {
 				e.printStackTrace();
 				System.exit(1);
-			}	
+			}
 			logger.write("ServerSocket open on port " + port);
+		}
+		
+		public void run() {
+			System.out.println("Server " + id + " threaded and running" );
+			String transaction;
+			Socket ss = new Socket();
+
+			try {
+				ss = serverSocket.accept();
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
+
+			Scanner sc = null;
+			try {
+				sc = new Scanner(ss.getInputStream());
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
+			transaction = sc.nextLine();
+			Quorum(transaction, id);
+		}	
+		
+		public void Quorum(String transaction, int id){
+			System.out.println(" ");
+			
+			int num_ServerLocks = 0;
+			int CurrentLocks = 0;
+			
+			//0 = read , 1 = write
+			int operation = 0;
+			
+			
+			//lock the server which is being read/write
+			//parse string to find out read/write lock Qn - 1 other servers
+			
+			if ( transaction.toLowerCase().indexOf("write") != -1 ) {
+				System.out.println("Server "+id+": Has recieved a write request");
+				operation = 1;
+				num_ServerLocks = Qw;
+			} else {
+				System.out.println("Server "+id+": Has recieved a read request");
+				operation = 0;
+				num_ServerLocks = Qr;
+			}
+			
+			System.out.println("Locking Servers");
+			
+			//locks server which is due to be written too
+			if(CurrentLocks < num_ServerLocks && !servers[id].isLocked()){
+				servers[id].lock();
+				CurrentLocks++;
+				System.out.println("Locked server "+id);
+				LockedServers.push(servers[id]);
+			}
+			
+			//locks all other servers
+			int counter = 0;
+			while(CurrentLocks < num_ServerLocks){
+				if(!servers[counter].isLocked()){
+					servers[counter].lock();
+					LockedServers.push(servers[counter]);
+					System.out.println("Locked server "+servers[counter].id);
+					CurrentLocks++;
+					counter++;
+				}else{
+					counter++;
+				}
+			}
+			if(CurrentLocks == num_ServerLocks){
+				System.out.println("Locks Obtained: Handling transaction");
+				if(operation == 0){
+					getDataItem();
+				}else{
+					int value_One = transaction.indexOf("X:=");
+					int value_Two = transaction.indexOf(";W");
+					write(Integer.parseInt(transaction.substring(value_One+3, value_Two)));
+					LockedServers.pop().unlock();
+				}
+			}else{
+				System.out.println("Locks Could not be obtained, unlocking locked servers.");
+				LockedServers.pop().unlock();
+			}
 		}
 		
 		//to do
@@ -129,9 +220,9 @@ public class CS346 {
 		}
 		
 		private boolean isLocked() {
-			if (lock == 0) 
+			if (lock == 0)
 				return false;
-			else 
+			else
 				return true;
 		}
 		
@@ -289,6 +380,7 @@ public class CS346 {
 		}
 		
 		System.out.println("<CS346>: received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
+		System.out.println("<CS346>: received and accepting n as " + n + ", Qw as " + Qw + ", and Qr as " + Qr);
 
 		//instantiate CS246
 		CS346 cs346 = new CS346();
@@ -299,6 +391,29 @@ public class CS346 {
 		
 		//spawn and start clients
 		cs346.spawnClients();
+    }
+    
+    public void spawnServers() {
+        Thread[] threads = new Thread[n];
+        
+        System.out.println("<CS346>: spawning " + n + " servers.");
+        servers = new Server[n];
+        //for 1 to <number of servers>
+        for (int i=0; i<n; i++){
+            //spawn servers
+            int serverID = i+1;
+            int serverPort = 9000 + serverID;
+            servers[i] = new Server(serverID, serverPort);
+        }
+        
+        
+        System.out.println("Threading Servers");
+        for (int i = 0; i < n; i++){
+            threads[i] = new Thread(servers[i]);
+        }
+        for(int i = 0; i < threads.length; i++){
+            threads[i].start();
+        }
     }
     
 	public void spawnServers() {
@@ -312,14 +427,14 @@ public class CS346 {
 			servers[i] = new Server(serverID, serverPort);
 		}
 	}
-	
+
 	public void startServers() {
 		for (int i=0; i<n; i++){
 			serverThreads[i] = new Thread(servers[i]);
 			serverThreads[i].start();
 		}	
 	}
-		
+
 	public void spawnClients() {
 		System.out.println("<CS346>: spawning 2 clients.");
 		Client client1 = new Client(1, 11);
