@@ -1,6 +1,7 @@
 import java.io.IOException;
 import java.io.FileNotFoundException;
 import java.net.SocketTimeoutException;
+import java.net.SocketException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -29,6 +30,7 @@ public class CS346 {
 	private Server[] servers;
 	//serverThreads is used to start the threads
 	private Thread[] serverThreads;
+	private Client[] clients;
 	private static boolean close = false;
     
     public static void usage() {
@@ -112,7 +114,7 @@ public class CS346 {
 		}
 		
 		//acquires a write or read quorum based on the param
-		private Socket[] quorum(int size) {
+		private Socket[] acquireQuorum(int size) {
 			Socket[] quorumSockets = new Socket[size -1];
 			//for each server required for a quorum
 			for (int i=0; i<quorumSockets.length; i++) {
@@ -131,6 +133,7 @@ public class CS346 {
 										quorumSockets[i] = socket;
 										OutputStream os = socket.getOutputStream();
 										PrintWriter out = new PrintWriter(os, true);
+										logger.write("locked server "+ j +" for quorum");
 										out.println("quorum locked by server " + id);
 									}
 								} catch (SocketTimeoutException t) {
@@ -148,21 +151,61 @@ public class CS346 {
 			return quorumSockets;
 		}
 		
-		private int read(Socket[] quorum) {
+		private int read(PrintWriter[] printWriters, BufferedReader[] bufferedReaders) {
 			//todo
 			//check the fucking thing of all of the fuckers
-			return 0;
+			int highestTimestamp = latestTimestamp;
+			int checkTimestamp;
+			int x = getDataItem();
+			String received;
+			try {
+				for (int i=0; i<printWriters.length; i++) {
+					printWriters[i].println("read");
+					received = bufferedReaders[i].readLine();
+					checkTimestamp = Integer.parseInt(received.substring(0,received.indexOf("-")));
+					if (checkTimestamp > highestTimestamp) {
+						highestTimestamp = checkTimestamp;
+						x = Integer.parseInt(received.substring(received.indexOf("-")+1));
+					}
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
+			logger.write("Transaction: read the data item");
+			logger.write("DataItem: x = " + x);			
+			return x;
 		}
 		
-		private void write(Socket quorum, int x) {
-			//
+		private void write(PrintWriter[] printWriters, int x) {
+			//todo
 			//command all of them to write, the bastards them
+			incrementTimestamp();
+			latestTimestamp = getTimestamp();
+			setDataItem(x);
+			for (int i=0; i<printWriters.length; i++) {
+				printWriters[i].println("write:"+latestTimestamp+"-"+x);
+			}
+			logger.write("Transaction: write the data item to the quorum");
 		}
 		
 		private int set(String toBeConverted) {
-			//to do
+			//todo
 			//parse the string you fucker
-			return 0;
+			int x = Integer.parseInt(toBeConverted.substring(toBeConverted.indexOf("=")+1));
+			logger.write("Transaction: set the data item to be " + x);
+			logger.write("DataItem: x = " + x);
+			return x;
+		}
+		
+		public void close() {
+			logger.write("Closing server");
+			try {
+				serverSocket.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+				System.exit(1);
+			}
 		}
 		
 		public void run() {
@@ -186,88 +229,139 @@ public class CS346 {
 					logger.write("received \"" + received + "\".");
 					received = received.trim().toLowerCase().replaceAll(" ","");
 					// System.out.println(received);
-					logger.write("format standardised to \"" + received + "\".");
 						
 					//client connection	
 					if (received.startsWith("t[")) {
+					logger.write("format standardised to \"" + received + "\".");
 						//do transaction
+						Socket[] quorum;
+						
 						if (received.contains("write")){
 							//a write quorum is required
 							//acquire quorum
-							Socket[] quorum = quorum(qw);
+							logger.write("Transaction: acquiring a write quorum");
+							quorum = acquireQuorum(Qw);
 						}
 						else if (received.contains("read")){
 							//a read quorum is required 
 							//acquire quorum
-							Socket[] quorum = quorum(qr);
+							logger.write("Transaction: acquiring a read quorum");
+							quorum = acquireQuorum(Qr);
 						}
 						else {
 							//no quorum is required
-							Socket[] quorum = new Socket[0];
+							quorum = new Socket[0];
+						}
+						
+						OutputStream[] outputStreams = new OutputStream[quorum.length];
+						PrintWriter[] printWriters = new PrintWriter[quorum.length];
+						InputStream[] inputStreams = new InputStream[quorum.length];
+						BufferedReader[] bufferedReaders = new BufferedReader[quorum.length];
+						
+						for (int h = 0; h<quorum.length; h++) {
+							outputStreams[h] = quorum[h].getOutputStream();
+							printWriters[h] = new PrintWriter(outputStreams[h], true);
+							inputStreams[h] = quorum[h].getInputStream();
+							bufferedReaders[h] = new BufferedReader(new InputStreamReader(inputStreams[h]));
 						}
 						
 						int index = received.indexOf(":") + 1;
 						String trans = received.substring(index);
+						String operation;
 						//peel transaction string until commit
 						
+						int x=0;
+						
 						while (!trans.equals("")) {
+							index = trans.indexOf(";");
+							operation = trans.substring(0,index);
+							trans = trans.substring(index + 1);
+							
 							//on begin
+							if (operation.startsWith("begin")) {
+								logger.write("begin transaction \"" + trans + "\"");
 								// do nothing
+							}
+
 							//on read
+							if (operation.startsWith("read")) {
 								//get read quorum
 								//x = data item
+								logger.write("Transaction: read the data item");
+								x = read(printWriters, bufferedReaders);
+							}
+
 							//on write
+							if (operation.startsWith("write")) {
 								//get write quorum
 								//have all write in parallel
 								//update timestamp and latestTimestamp
 								//set data item
+								write(printWriters, x);
+							}
+	
 							//on set data
+							if (operation.startsWith("x:=")) {
 								//x = var
+								x = set(operation);
+							}
+
 							//on commit
-								//close quorum sockets
-							
+							if (operation.startsWith("commit")) {
+								logger.write("Transaction: committing transaction and releasing quorum");
+								for (int i=0; i<quorum.length; i++){
+									//send close message
+									printWriters[i].println("close");
+									//close socket
+									quorum[i].close();
+								}
+							}
 						}
-							
+						out.println("transaction complete");
 					} 					
 					//server connection
 					else if (received.startsWith("q")) {
 						//wait on server instruction
-							//update dataItem
+						boolean finished = false;
+						String recvd;
+						while (!finished) {
+							recvd = in.readLine();
+							
 							//send var and timestamp
+							if (recvd.startsWith("read")) {
+								out.println(latestTimestamp + "-" + getDataItem());
+								logger.write("Quorum: read the local data item");
+							}
+							
+							//update dataItem
+							if (recvd.startsWith("write")) {
+								int x = Integer.parseInt(recvd.substring(recvd.indexOf("-")+1));
+								latestTimestamp = Integer.parseInt(recvd.substring(recvd.indexOf(":")+1,recvd.indexOf("-")));
+								setDataItem(x);
+								logger.write("Quorum: write to the local data item");
+								logger.write("DataItem: x =" + x);
+							}
+							
 							//release
+							if (recvd.startsWith("close")) {
+								logger.write("Quorum: released from the quorum");
+								finished = true;
+							}
+						}
 						
-					}	
+					}
+					socket.close();
+				} catch (SocketException s) {
+					if(!close){
+						s.printStackTrace();
+						System.exit(1);
+					}					
 				} catch (IOException e) {
 					e.printStackTrace();
 					System.exit(1);
 				}
 			}
 			
-		}
-		
-		public boolean lock(){
-			if (isLocked()) return false;
-			else {
-				//lock and return
-				this.lock = 1;
-				return true;
-			}
-		}
-		
-		public boolean unlock(){
-			if (!isLocked()) return false;
-			else {
-				//unlock and return
-				this.lock = 0;
-				return true;
-			}
-		}
-		
-		private boolean isLocked() {
-			if (lock == 0)
-				return false;
-			else
-				return true;
 		}
 		
 		private int getDataItem() {
@@ -284,10 +378,12 @@ public class CS346 {
 		private int id;
 		private int port;
 		private ServerSocket serverSocket;
+		boolean clientClosed;
 		
 		public Client(int id, int port){
 			this.id = id;
 			this.port = port;
+			clientClosed = false;
 			//if trans.txt does not exist, create default
 			try {
 				FileReader fileReader = new FileReader("trans" + id + ".txt");
@@ -314,6 +410,10 @@ public class CS346 {
 				e.printStackTrace();
 				System.exit(1);
 			}
+		}
+		
+		public boolean isClosed() {
+			return this.clientClosed;
 		}
 		
 		public void run() {
@@ -369,6 +469,7 @@ public class CS346 {
 				
 			}
 			System.out.println("<Client" + this.id + ">: closing client");
+			clientClosed = true;
 		}
 		
 		private Socket connect(int serverID) {
@@ -447,6 +548,16 @@ public class CS346 {
 		
 		//spawn and start clients
 		cs346.spawnClients();
+		
+		while (!(cs346.clients[0].isClosed() && cs346.clients[1].isClosed())) {
+			//wait until clients are done
+		}
+		
+		close();
+		for (int i=0; i<cs346.servers.length; i++) {
+			//close hanging servers
+			cs346.servers[i].close();
+		}
     }
     
 	public void spawnServers() {
@@ -471,14 +582,23 @@ public class CS346 {
 
 	public void spawnClients() {
 		System.out.println("<CS346>: spawning 2 clients.");
-		Client client1 = new Client(1, startPort + 11);
-		Client client2 = new Client(2, startPort + 12);
-		Thread thread1 = new Thread(client1);
-		Thread thread2 = new Thread(client2);
+		clients = new Client[2];
+		clients[0] = new Client(1, startPort + 11);
+		clients[1] = new Client(2, startPort + 12);
+		Thread thread1 = new Thread(clients[0]);
+		Thread thread2 = new Thread(clients[1]);
 		thread1.start();
 		thread2.start();
 	}
 
+	public int getTimestamp() {
+		return timestamp;
+	}
+	
+	public void incrementTimestamp() {
+		timestamp += 1;
+	}
+	
 	public static void close() {
 		close = true;
 	}
